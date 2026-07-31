@@ -2,8 +2,7 @@
 
 A Streamlit dashboard analyzing 5,000 shipments to answer five operational questions for FreightFox: regional delivery performance, the freight cost/distance relationship and carrier pricing outliers, which customers see the most delays, data quality issues in the source file, and a proposed leading indicator for catching problems early.
 
-**Live dashboard:** _add your Streamlit Cloud URL here_
-**Business answers writeup:** [`BUSINESS_ANSWERS.md`](./BUSINESS_ANSWERS.md)
+**Live dashboard:** https://frieght-shipment-fjduqusxgrx86w8egb9teq.streamlit.app/
 
 ## Running locally
 
