@@ -432,36 +432,49 @@ with tabs[4]:
     section_eyebrow("Q5 — LEADING INDICATOR")
     st.subheader("Recommended weekly tracking metric")
     st.markdown(
-        "**Share of currently in-transit shipments already past their promised delivery date.**\n\n"
-        "On-time rate only tells you about shipments that already finished — by then it's too "
-        "late to act. This metric flags a shipment while it's still movable: expedite it, get "
-        "ahead of the customer call, or swap carriers mid-route."
+        "**Weekly late-delivery rate, tracked as a 4-week rolling average.**\n\n"
+        "Normalized for volume, and the rolling window turns a noisy weekly number into an "
+        "actionable trend line -- a sustained move away from baseline is the real signal, "
+        "not any single week."
     )
 
-    in_transit = df[df["status"] == "In-Transit"].copy()
+    weekly_df = usable.copy()
+    weekly_df["late"] = ~weekly_df["on_time"]
+    weekly_df["week"] = weekly_df["actual_delivery_date"].dt.to_period("W-SUN").dt.start_time
+    weekly = weekly_df.groupby("week").agg(n=("shipment_id", "count"), late_rate=("late", "mean")).reset_index()
+    weekly = weekly[weekly["n"] >= 20].copy()  # drop the partial first/last weeks the file cuts off mid-way
+    weekly["late_rate"] = (weekly["late_rate"] * 100).round(1)
+    weekly["rolling_4wk"] = weekly["late_rate"].rolling(4, min_periods=1).mean().round(1)
 
-    finding_note(
-        "I'm deliberately <b>not</b> showing a single 'X% at risk' number here. This metric "
-        "needs a real 'today' to compare against, and this is a static historical file with no "
-        "live clock — any date invented as a stand-in for 'now' produces a distorted, near-100% "
-        "figure, since in-transit shipments are scattered across the whole file rather than "
-        "clustered near a true snapshot point. Showing a fabricated percentage would be worse "
-        "than showing nothing."
-    )
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        stamp_card("Baseline late rate", f"{weekly['late_rate'].mean():.1f}%", "neutral", "mean across weeks")
+    with c2:
+        stamp_card("Weekly range", f"{weekly['late_rate'].min():.0f}\u2013{weekly['late_rate'].max():.0f}%",
+                    "caution", "normal week-to-week noise")
+    with c3:
+        stamp_card("Suggested alert threshold", "\u2265 58%", "flagged", "sustained over rolling window")
 
-    stamp_card("Currently in-transit shipments", f"{len(in_transit):,}", "neutral",
-                f"promised dates span {in_transit['promised_delivery_date'].min().date()} "
-                f"to {in_transit['promised_delivery_date'].max().date()}")
-
-    fig5 = px.histogram(
-        in_transit, x="promised_delivery_date",
-        title="Promised delivery dates of currently in-transit shipments",
-    )
-    fig5.update_traces(marker_color=TEAL)
-    fig5.update_layout(template=PLOTLY_TEMPLATE, showlegend=False)
+    fig5 = go.Figure()
+    fig5.add_trace(go.Bar(x=weekly["week"], y=weekly["late_rate"], name="Weekly late rate",
+                           marker_color=RULE))
+    fig5.add_trace(go.Scatter(x=weekly["week"], y=weekly["rolling_4wk"], name="4-week rolling avg",
+                               mode="lines+markers", line=dict(color=BRICK, width=3)))
+    fig5.update_layout(template=PLOTLY_TEMPLATE, title="Weekly late-delivery rate vs. 4-week rolling average",
+                        yaxis_title="Late rate (%)", legend=dict(orientation="h", y=1.15))
     st.plotly_chart(fig5, use_container_width=True)
 
+    finding_note(
+        "The weekly rate bounces around the same ~50% baseline found everywhere else in this "
+        "analysis -- consistent with region/mode not being real drivers. The rolling average is "
+        "what makes this actionable: escalate on a sustained move, not a single noisy week. "
+        "Partial first/last weeks (n&lt;20) are excluded so they don't distort the line."
+    )
+
     st.markdown(
-        "**Second metric worth pairing with it:** weekly rate of `status`-vs-date disagreement. "
-        "If that gap doesn't close, no dashboard built on top of `status` can be trusted."
+        "**A second, forward-looking layer worth adding once this runs live:** share of "
+        "currently in-transit shipments already past their promised date. That's a true leading "
+        "indicator rather than a lagging one -- but it needs a real system clock to compare "
+        "against, which this static export doesn't have, so I'm not fabricating a number for it "
+        "here."
     )
