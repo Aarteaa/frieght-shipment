@@ -67,6 +67,19 @@ Four things worth calling out, roughly in order of how much they matter:
 
 ### Q5 — One metric to track weekly to catch delivery problems early?
 
-**Share of currently in-transit shipments already past their promised delivery date.**
+**Weekly late-delivery rate, tracked as a 4-week rolling average.**
 
-On-time rate tells you about shipments that already finished — by the time it moves, the damage is done. This metric catches a shipment while it's still fixable: you can expedite it, get ahead of the customer call, or swap carriers mid-route. I'd pair it with one more thing given what I found above — a weekly check of how often `status` disagrees with the dates. If that gap doesn't close, it means nobody can trust the operational dashboard built on top of `status`, and that's worth fixing before anything else on this list.
+```python
+usable["week"] = usable["actual_delivery_date"].dt.to_period("W-SUN").dt.start_time
+weekly = usable.groupby("week").agg(n=("shipment_id","count"), late_rate=("late","mean"))
+weekly["rolling_4wk"] = (
+    usable.groupby("week")["late"].sum().rolling(4, min_periods=1).sum()
+    / usable.groupby("week")["late"].count().rolling(4, min_periods=1).sum()
+)
+```
+
+Running this on the dataset gives a real weekly series — late rate bounces between roughly 44% and 59% most weeks, centered right around the ~50% baseline I found everywhere else in this analysis (consistent with region/mode not being real drivers — the noise is structural, not seasonal). The 4-week rolling average smooths that week-to-week bounce into a usable trend line: if it holds steady in the high-40s to low-50s, that's normal; a sustained move to, say, 58%+ over several rolling windows is the actual signal worth escalating on, not any single noisy week. The last two weeks in the file (39 and then 1 shipment) are a small-sample tail from the data simply running out — I'd exclude a partial final week like that from any live alerting logic rather than let it spike the number.
+
+I chose this over a raw on-time count because it's normalized for shipment volume (a busy week isn't penalized just for having more shipments) and because the rolling window is what makes it actionable — a single week's number is too noisy to act on by itself, which the data above shows clearly.
+
+**One forward-looking layer worth adding once this runs live, not retrofitted onto a static file:** share of *currently in-transit* shipments already past their promised date. The weekly late rate above is still a lagging measure — it tells you about shipments that already finished. A live in-transit check catches a shipment while it's still fixable. I didn't compute a number for that here because this file has no real "current date" to compare against, and I'd rather flag that limitation than fabricate a percentage — but it's the natural next layer to add once this is running against a live system clock instead of a historical export.
